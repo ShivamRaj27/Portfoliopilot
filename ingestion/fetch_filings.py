@@ -44,20 +44,40 @@ DEFAULT_USER_AGENT = "Shivam Raj sh25vm@gmail.com"
 
 # The XBRL tags that feed the ratios in Layer 2 (liquidity, profitability,
 # leverage, valuation, efficiency). Extend this list as Layer 2 needs more.
+
 XBRL_TAGS_OF_INTEREST = [
     "Assets",
     "AssetsCurrent",
     "Liabilities",
     "LiabilitiesCurrent",
     "StockholdersEquity",
+    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     "Revenues",
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
     "NetIncomeLoss",
     "GrossProfit",
+    "CostOfRevenue",
+    "CostOfGoodsAndServicesSold",
     "OperatingIncomeLoss",
     "CashAndCashEquivalentsAtCarryingValue",
     "InventoryNet",
     "EarningsPerShareDiluted",
 ]
+# XBRL_TAGS_OF_INTEREST = [
+#     "Assets",
+#     "AssetsCurrent",
+#     "Liabilities",
+#     "LiabilitiesCurrent",
+#     "StockholdersEquity",
+#     "Revenues",
+#     "NetIncomeLoss",
+#     "GrossProfit",
+#     "OperatingIncomeLoss",
+#     "CashAndCashEquivalentsAtCarryingValue",
+#     "InventoryNet",
+#     "EarningsPerShareDiluted",
+# ]
 
 DEFAULT_TICKERS = ["NKE"]
 REQUEST_DELAY_SECONDS = 0.15  # keeps well under SEC's ~10 req/sec limit

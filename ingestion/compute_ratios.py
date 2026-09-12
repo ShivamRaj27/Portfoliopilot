@@ -27,17 +27,59 @@ DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_TICKERS = ["NKE"]
 
 # Tags we need, pulled from the financials table's long format
+
+# Tags we need, pulled from the financials table's long format
+# Tags we need, pulled from the financials table's long format
 REQUIRED_TAGS = [
     "Assets",
     "AssetsCurrent",
     "Liabilities",
     "LiabilitiesCurrent",
     "StockholdersEquity",
+    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     "Revenues",
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
     "NetIncomeLoss",
     "GrossProfit",
+    "CostOfRevenue",
+    "CostOfGoodsAndServicesSold",
     "OperatingIncomeLoss",
 ]
+
+# Some concepts are reported under different XBRL tags depending on the
+# company/year (e.g. Nike stopped using "Revenues" after adopting ASC 606).
+# For each concept, take the first non-null value across its candidate tags,
+# in priority order.
+TAG_FALLBACKS = {
+    "revenues": ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+                 "RevenueFromContractWithCustomerIncludingAssessedTax"],
+    "equity": ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+    "cost_of_revenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold"],
+}
+
+
+def coalesce_columns(wide: pd.DataFrame, candidate_cols: list) -> pd.Series:
+    """Returns the first non-null value across a list of candidate columns, per row."""
+    existing = [c for c in candidate_cols if c in wide.columns]
+    if not existing:
+        return pd.Series(index=wide.index, dtype="float64")
+    result = wide[existing[0]].copy()
+    for col in existing[1:]:
+        result = result.fillna(wide[col])
+    return result
+
+# REQUIRED_TAGS = [
+#     "Assets",
+#     "AssetsCurrent",
+#     "Liabilities",
+#     "LiabilitiesCurrent",
+#     "StockholdersEquity",
+#     "Revenues",
+#     "NetIncomeLoss",
+#     "GrossProfit",
+#     "OperatingIncomeLoss",
+# ]
 
 
 def load_financials(ticker: str) -> pd.DataFrame:
@@ -75,25 +117,62 @@ def compute_ratios(wide: pd.DataFrame) -> pd.DataFrame:
     """Computes ratio families from the wide annual financials table."""
     ratios = pd.DataFrame(index=wide.index)
 
+    # Coalesce concepts that get reported under different tags depending on
+    # the company/year (see TAG_FALLBACKS above).
+    revenues = coalesce_columns(wide, TAG_FALLBACKS["revenues"])
+    equity = coalesce_columns(wide, TAG_FALLBACKS["equity"])
+    cost_of_revenue = coalesce_columns(wide, TAG_FALLBACKS["cost_of_revenue"])
+
+    # Gross profit: use the reported tag if present, else derive it
+    # (Revenues - Cost of Revenue) since many issuers don't tag it directly.
+    gross_profit = wide["GrossProfit"]
+    if "GrossProfit" not in wide.columns:
+        gross_profit = pd.Series(index=wide.index, dtype="float64")
+    gross_profit = gross_profit.fillna(revenues - cost_of_revenue)
+
     # --- Liquidity ---
     ratios["current_ratio"] = wide["AssetsCurrent"] / wide["LiabilitiesCurrent"]
 
     # --- Profitability ---
-    ratios["net_margin"] = wide["NetIncomeLoss"] / wide["Revenues"]
-    ratios["gross_margin"] = wide["GrossProfit"] / wide["Revenues"]
-    ratios["operating_margin"] = wide["OperatingIncomeLoss"] / wide["Revenues"]
+    ratios["net_margin"] = wide["NetIncomeLoss"] / revenues
+    ratios["gross_margin"] = gross_profit / revenues
+    ratios["operating_margin"] = wide["OperatingIncomeLoss"] / revenues
 
     # --- Leverage ---
-    ratios["debt_to_equity"] = wide["Liabilities"] / wide["StockholdersEquity"]
+    ratios["debt_to_equity"] = wide["Liabilities"] / equity
 
     # --- Efficiency ---
-    ratios["asset_turnover"] = wide["Revenues"] / wide["Assets"]
+    ratios["asset_turnover"] = revenues / wide["Assets"]
 
     # --- Year-over-year change (useful signal for the agent layer) ---
-    ratios["revenue_yoy_growth"] = wide["Revenues"].pct_change()
+    ratios["revenue_yoy_growth"] = revenues.pct_change()
     ratios["net_income_yoy_growth"] = wide["NetIncomeLoss"].pct_change()
 
     return ratios.round(4)
+
+# def compute_ratios(wide: pd.DataFrame) -> pd.DataFrame:
+#     """Computes ratio families from the wide annual financials table."""
+#     ratios = pd.DataFrame(index=wide.index)
+
+#     # --- Liquidity ---
+#     ratios["current_ratio"] = wide["AssetsCurrent"] / wide["LiabilitiesCurrent"]
+
+#     # --- Profitability ---
+#     ratios["net_margin"] = wide["NetIncomeLoss"] / wide["Revenues"]
+#     ratios["gross_margin"] = wide["GrossProfit"] / wide["Revenues"]
+#     ratios["operating_margin"] = wide["OperatingIncomeLoss"] / wide["Revenues"]
+
+#     # --- Leverage ---
+#     ratios["debt_to_equity"] = wide["Liabilities"] / wide["StockholdersEquity"]
+
+#     # --- Efficiency ---
+#     ratios["asset_turnover"] = wide["Revenues"] / wide["Assets"]
+
+#     # --- Year-over-year change (useful signal for the agent layer) ---
+#     ratios["revenue_yoy_growth"] = wide["Revenues"].pct_change()
+#     ratios["net_income_yoy_growth"] = wide["NetIncomeLoss"].pct_change()
+
+#     return ratios.round(4)
 
 
 def main():

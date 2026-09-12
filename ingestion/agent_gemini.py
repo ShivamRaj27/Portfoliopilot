@@ -57,28 +57,33 @@ When you give your final answer:
 """
 
 
-def _with_call_logging(fn):
-    """Wraps a tool function so we can see when/how Gemini calls it, since
-    automatic function calling normally hides this from us."""
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        print(f"  [tool call] {fn.__name__}({kwargs})")
-        return fn(*args, **kwargs)
-    return wrapper
+def _make_logged_tools(log: list):
+    """
+    Builds fresh wrapped tool functions that append to `log` when called.
+    A fresh set is built per run_agent() call (not once at import time) so
+    concurrent/successive calls (e.g. from a Streamlit app) don't share or
+    leak entries between each other.
+    """
+    def wrap(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            print(f"  [tool call] {fn.__name__}({kwargs})")
+            result = fn(*args, **kwargs)
+            log.append({"tool": fn.__name__, "input": kwargs, "output": result})
+            return result
+        return wrapper
+
+    return [wrap(get_ratios), wrap(get_price_signals), wrap(search_filings)]
 
 
-# Passing these plain Python functions directly as `tools` triggers automatic
-# function calling: Gemini reads each function's docstring + type hints to
-# build its own tool schema, decides which to call, and the SDK executes them.
-TOOLS = [
-    _with_call_logging(get_ratios),
-    _with_call_logging(get_price_signals),
-    _with_call_logging(search_filings),
-]
-
-
-def run_agent(user_query: str, verbose: bool = True) -> str:
+def run_agent(user_query: str) -> tuple[str, list]:
+    """Returns (final_answer_text, tool_call_log) where tool_call_log is a
+    list of {"tool": name, "input": kwargs, "output": result} dicts, in the
+    order the tools were actually called."""
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+
+    tool_call_log = []
+    tools = _make_logged_tools(tool_call_log)
 
     # Automatic function calling is only recommended via a chat session
     # (not a one-off generate_content call) - see the SDK's own warning.
@@ -86,11 +91,11 @@ def run_agent(user_query: str, verbose: bool = True) -> str:
         model=MODEL_NAME,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
-            tools=TOOLS,
+            tools=tools,
         ),
     )
     response = chat.send_message(user_query)
-    return response.text
+    return response.text, tool_call_log
 
 
 def main():
@@ -104,7 +109,7 @@ def main():
         return
 
     print(f"Query: {args.query}\n")
-    answer = run_agent(args.query)
+    answer, tool_log = run_agent(args.query)
     print("\n=== Final Answer ===\n")
     print(answer)
 

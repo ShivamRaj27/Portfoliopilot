@@ -5,7 +5,5 @@
 
 
 import pandas as pd
-df = pd.read_parquet("data/NKE_financials.parquet")
-print(df[df["tag"] == "Revenues"].sort_values("filed_date").tail(10))
-
-print(df.head())
+fin = pd.read_parquet("data/NKE_financials.parquet")
+print(fin[fin["tag"] == "Revenues"].sort_values("filed_date").tail(5))

@@ -27,7 +27,155 @@ import streamlit as st
 
 DATA_DIR = Path(__file__).parent / "data"
 
-st.set_page_config(page_title="PortfolioPilot", page_icon="📊", layout="wide")
+st.set_page_config(page_title="PortfolioPilot", page_icon=" 📊 ", layout="wide")
+
+st.markdown("""
+<style>
+
+/* ---------- GLOBAL ---------- */
+
+.stApp {
+    background: #0B1020;
+    color: #F8FAFC;
+}
+
+.main .block-container {
+    max-width: 1200px;
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+}
+
+/* ---------- SIDEBAR ---------- */
+
+section[data-testid="stSidebar"] {
+    background: #080D1A;
+    border-right: 1px solid #1E293B;
+}
+
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: #F8FAFC;
+}
+
+/* ---------- HEADINGS ---------- */
+
+h1 {
+    font-size: 42px !important;
+    font-weight: 700 !important;
+    letter-spacing: -1px;
+}
+
+h2 {
+    font-size: 25px !important;
+    margin-top: 2rem !important;
+}
+
+h3 {
+    font-size: 19px !important;
+}
+
+/* ---------- TEXT ---------- */
+
+p {
+    color: #94A3B8;
+}
+
+/* ---------- INPUT ---------- */
+
+textarea {
+    background: #111827 !important;
+    color: #F8FAFC !important;
+    border: 1px solid #334155 !important;
+    border-radius: 12px !important;
+}
+
+textarea:focus {
+    border: 1px solid #6366F1 !important;
+}
+
+/* ---------- BUTTON ---------- */
+
+.stButton > button {
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #111827;
+    color: #E2E8F0;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.stButton > button:hover {
+    border-color: #6366F1;
+    color: white;
+    background: #172033;
+}
+
+/* Primary button */
+
+button[kind="primary"] {
+    background: #4F46E5 !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+button[kind="primary"]:hover {
+    background: #6366F1 !important;
+}
+
+/* ---------- CARDS ---------- */
+
+.pp-card {
+    background: linear-gradient(
+        145deg,
+        #111827,
+        #0F172A
+    );
+    border: 1px solid #1E293B;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 18px;
+}
+
+.pp-card:hover {
+    border-color: #334155;
+}
+
+/* ---------- BADGES ---------- */
+
+.pp-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #172554;
+    color: #93C5FD;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+}
+
+/* ---------- DIVIDER ---------- */
+
+hr {
+    border-color: #1E293B !important;
+}
+
+/* ---------- EXPANDERS ---------- */
+
+details {
+    background: #0F172A !important;
+    border: 1px solid #1E293B !important;
+    border-radius: 10px !important;
+}
+
+/* ---------- SPINNER ---------- */
+
+.stSpinner > div {
+    border-top-color: #6366F1 !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 
 def list_available_tickers() -> list:
@@ -61,8 +209,53 @@ def render_tool_call_log(tool_call_log: list):
 
 
 def main():
-    st.title("📊 PortfolioPilot")
-    st.caption("An agentic research assistant for investment decisions — grounded in SEC filings, computed ratios, and price signals.")
+    
+    st.markdown("""
+<div style="margin-bottom: 30px;">
+
+<div style="
+    font-size: 14px;
+    font-weight: 600;
+    color: #818CF8;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+">
+AI-POWERED INVESTMENT RESEARCH
+</div>
+
+<div style="
+    font-size: 46px;
+    font-weight: 750;
+    letter-spacing: -2px;
+    color: #F8FAFC;
+">
+PortfolioPilot
+</div>
+
+<div style="
+    font-size: 18px;
+    color: #94A3B8;
+    max-width: 750px;
+    line-height: 1.6;
+">
+Research companies using SEC filings, financial ratios and price signals —
+with an AI agent that decides which evidence to analyze.
+</div>
+
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="margin-bottom: 25px;">
+    
+    <span class="pp-badge">SEC FILINGS</span>
+    <span class="pp-badge">FINANCIAL RATIOS</span>
+    <span class="pp-badge">PRICE SIGNALS</span>
+    <span class="pp-badge">AI AGENT</span>
+    
+    </div>
+    """, unsafe_allow_html=True)
 
     with st.sidebar:
         st.header("Setup")
@@ -83,6 +276,28 @@ def main():
     ticker_hint = available_tickers[0] if available_tickers else "NKE"
 
     st.subheader("Ask a question")
+    st.markdown("""
+<div class="pp-card">
+
+<div style="
+    font-size: 20px;
+    font-weight: 650;
+    color: #F8FAFC;
+    margin-bottom: 6px;
+">
+Research Console
+</div>
+
+<div style="
+    font-size: 14px;
+    color: #64748B;
+    margin-bottom: 18px;
+">
+Ask PortfolioPilot a company-specific investment research question.
+</div>
+
+</div>
+""", unsafe_allow_html=True)
     query = st.text_area(
         "Your question",
         placeholder=f"e.g. How is {ticker_hint}'s financial health trending, and are there any red flags?",
@@ -91,6 +306,16 @@ def main():
     )
 
     st.caption("Or try an example:")
+    st.markdown("""
+<div style="
+    color:#64748B;
+    font-size:13px;
+    margin-top:12px;
+    margin-bottom:8px;
+">
+SUGGESTED RESEARCH QUESTIONS
+</div>
+""", unsafe_allow_html=True)
     cols = st.columns(len(EXAMPLE_QUERIES))
     for col, template in zip(cols, EXAMPLE_QUERIES):
         example = template.format(ticker=ticker_hint)
@@ -128,7 +353,37 @@ def main():
                 return
 
         st.subheader("Answer")
-        st.markdown(answer)
+        st.markdown("""
+<div style="
+    font-size: 13px;
+    font-weight: 600;
+    color: #818CF8;
+    letter-spacing: 1.5px;
+    margin-top: 35px;
+    margin-bottom: 8px;
+">
+RESEARCH OUTPUT
+</div>
+
+<div style="
+    font-size: 26px;
+    font-weight: 650;
+    color: #F8FAFC;
+    margin-bottom: 18px;
+">
+Investment Analysis
+</div>
+""", unsafe_allow_html=True)
+
+        st.markdown(
+            f"""
+            <div class="pp-card">
+            {answer}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
 
         st.subheader("How the agent got there")
         render_tool_call_log(tool_call_log)

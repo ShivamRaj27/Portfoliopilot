@@ -202,6 +202,14 @@ def get_lasso_findings(ticker: str) -> dict:
     dropped (shrunk to exactly zero) when predicting next-day return
     magnitude for a ticker - i.e. genuine feature selection, not a
     prediction. See lasso_selection.py for the training/evaluation code.
+
+    ALSO returns a separate, clearly-labeled raw correlation ranking as a
+    diagnostic view - NOT a Lasso result. Raw pairwise correlation is prone
+    to noise and doesn't account for other features at all, so it can look
+    "significant" even when there's no real predictive relationship. It's
+    included purely so there's always something concrete to look at, even
+    when Lasso's honest answer is "no feature survived" - which is the
+    common case here and is itself the correct finding, not a failure.
     """
     ticker = ticker.upper()
     path = DATA_DIR / f"{ticker}_lasso_coefficients.parquet"
@@ -212,6 +220,23 @@ def get_lasso_findings(ticker: str) -> dict:
     kept = df[df["coefficient"] != 0].sort_values("abs_coefficient", ascending=False)
     dropped = df[df["coefficient"] == 0]["feature"].tolist()
 
+    # Diagnostic-only raw correlation ranking (separate from Lasso's actual
+    # coefficient-based selection above).
+    raw_correlation_ranking = []
+    try:
+        from feature_engineering import FEATURE_COLUMNS, build_feature_matrix
+        fm = build_feature_matrix(ticker)
+        corr = fm[FEATURE_COLUMNS].corrwith(fm["target_return"])
+        raw_df = pd.DataFrame({
+            "feature": corr.index,
+            "correlation_with_next_day_return": corr.values,
+        })
+        raw_df["abs_correlation"] = raw_df["correlation_with_next_day_return"].abs()
+        raw_df = raw_df.sort_values("abs_correlation", ascending=False)
+        raw_correlation_ranking = raw_df.round(4).to_dict(orient="records")
+    except Exception:
+        raw_correlation_ranking = []
+
     return _sanitize_for_json({
         "ticker": ticker,
         "features_kept": kept.to_dict(orient="records"),
@@ -219,6 +244,13 @@ def get_lasso_findings(ticker: str) -> dict:
         "note": ("An empty 'features_kept' list means Lasso found no reliable linear "
                  "signal in ANY feature for predicting next-day return magnitude - a "
                  "legitimate, honest result for this kind of prediction task, not an error."),
+        "raw_correlation_ranking": raw_correlation_ranking,
+        "raw_correlation_disclaimer": ("DIAGNOSTIC ONLY - this is simple pairwise correlation, NOT a "
+                                        "Lasso result. It ignores every other feature and is prone to "
+                                        "noise, so a feature ranking high here does NOT mean it's "
+                                        "reliably predictive. Shown only to illustrate the raw data "
+                                        "Lasso considered before concluding none of it survives real "
+                                        "feature selection."),
     })
 
 

@@ -111,7 +111,9 @@ def render_classifier_results(result: dict):
 
 
 def render_lasso_results(result: dict):
-    """Renders get_lasso_findings() output as a feature-selection table."""
+    """Renders get_lasso_findings() output: Lasso's official selection first,
+    then a clearly-separated raw-correlation diagnostic view so there's always
+    something concrete visible even when Lasso's honest answer is 'none kept'."""
     if "error" in result:
         st.error(result["error"])
         return
@@ -119,6 +121,7 @@ def render_lasso_results(result: dict):
     kept = result["features_kept"]
     dropped = result["features_dropped"]
 
+    st.write("##### Lasso's official result")
     if kept:
         st.write("**Features Lasso kept (non-zero coefficient):**")
         st.dataframe(pd.DataFrame(kept), use_container_width=True, hide_index=True)
@@ -129,6 +132,22 @@ def render_lasso_results(result: dict):
         st.write(", ".join(dropped) if dropped else "—")
 
     st.caption(result["note"])
+
+    ranking = result.get("raw_correlation_ranking")
+    if ranking:
+        st.divider()
+        st.write("##### Diagnostic view (not a Lasso result)")
+        ranking_df = pd.DataFrame(ranking)
+        st.bar_chart(
+            ranking_df.set_index("feature")["correlation_with_next_day_return"],
+            use_container_width=True,
+        )
+        st.dataframe(
+            ranking_df[["feature", "correlation_with_next_day_return"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"⚠️ {result['raw_correlation_disclaimer']}")
 
 
 def render_cluster_results(result: dict):

@@ -44,12 +44,18 @@ DEFAULT_USER_AGENT = "Shivam Raj sh25vm@gmail.com"
 
 # The XBRL tags that feed the ratios in Layer 2 (liquidity, profitability,
 # leverage, valuation, efficiency). Extend this list as Layer 2 needs more.
-
+#
+# NOTE: several concepts have more than one possible tag because companies
+# changed which tag they use over time (most notably: many issuers stopped
+# tagging plain "Revenues" after adopting ASC 606 in 2018 and switched to
+# "RevenueFromContractWithCustomerExcludingAssessedTax" instead). We pull
+# every variant here; compute_ratios.py coalesces across them per concept.
 XBRL_TAGS_OF_INTEREST = [
     "Assets",
     "AssetsCurrent",
     "Liabilities",
     "LiabilitiesCurrent",
+    "LiabilitiesNoncurrent",
     "StockholdersEquity",
     "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     "Revenues",
@@ -64,20 +70,6 @@ XBRL_TAGS_OF_INTEREST = [
     "InventoryNet",
     "EarningsPerShareDiluted",
 ]
-# XBRL_TAGS_OF_INTEREST = [
-#     "Assets",
-#     "AssetsCurrent",
-#     "Liabilities",
-#     "LiabilitiesCurrent",
-#     "StockholdersEquity",
-#     "Revenues",
-#     "NetIncomeLoss",
-#     "GrossProfit",
-#     "OperatingIncomeLoss",
-#     "CashAndCashEquivalentsAtCarryingValue",
-#     "InventoryNet",
-#     "EarningsPerShareDiluted",
-# ]
 
 DEFAULT_TICKERS = ["NKE"]
 REQUEST_DELAY_SECONDS = 0.15  # keeps well under SEC's ~10 req/sec limit

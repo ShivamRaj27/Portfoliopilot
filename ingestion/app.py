@@ -13,12 +13,7 @@ Setup:
 
 Usage:
     streamlit run app.py
-This opens a local browser tab (usually http://localhost:8501) - it is not
-a public website, just a local web server on your own machine.
 
-API keys: enter them in the sidebar each session (kept in memory only, never
-written to disk) - simpler for a group project than relying on setx/export
-persisting correctly across everyone's machines.
 """
 
 from pathlib import Path

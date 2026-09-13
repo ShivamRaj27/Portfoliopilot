@@ -27,14 +27,12 @@ DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_TICKERS = ["NKE"]
 
 # Tags we need, pulled from the financials table's long format
-
-# Tags we need, pulled from the financials table's long format
-# Tags we need, pulled from the financials table's long format
 REQUIRED_TAGS = [
     "Assets",
     "AssetsCurrent",
     "Liabilities",
     "LiabilitiesCurrent",
+    "LiabilitiesNoncurrent",
     "StockholdersEquity",
     "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     "Revenues",
@@ -68,18 +66,6 @@ def coalesce_columns(wide: pd.DataFrame, candidate_cols: list) -> pd.Series:
     for col in existing[1:]:
         result = result.fillna(wide[col])
     return result
-
-# REQUIRED_TAGS = [
-#     "Assets",
-#     "AssetsCurrent",
-#     "Liabilities",
-#     "LiabilitiesCurrent",
-#     "StockholdersEquity",
-#     "Revenues",
-#     "NetIncomeLoss",
-#     "GrossProfit",
-#     "OperatingIncomeLoss",
-# ]
 
 
 def load_financials(ticker: str) -> pd.DataFrame:
@@ -123,6 +109,31 @@ def compute_ratios(wide: pd.DataFrame) -> pd.DataFrame:
     equity = coalesce_columns(wide, TAG_FALLBACKS["equity"])
     cost_of_revenue = coalesce_columns(wide, TAG_FALLBACKS["cost_of_revenue"])
 
+    # Total liabilities: some filers (Nike included) never tag an aggregate
+    # "Liabilities" figure at all - only its current/noncurrent components.
+    # When the aggregate tag is missing, derive it as an exact sum:
+    # Liabilities = LiabilitiesCurrent + LiabilitiesNoncurrent.
+    liabilities = wide["Liabilities"].fillna(wide["LiabilitiesCurrent"] + wide["LiabilitiesNoncurrent"])
+
+    # Bidirectional fallback using the accounting identity
+    # Assets = Liabilities + Equity. Some filers (Nike, recent fiscal years)
+    # report StockholdersEquity directly but have NO aggregate Liabilities
+    # tag AND no LiabilitiesNoncurrent tag at all - so the sum above stays
+    # NaN even though we already know equity. In that case, derive
+    # Liabilities = Assets - Equity directly from the reported equity value.
+    liabilities = liabilities.fillna(wide["Assets"] - equity)
+
+    # Last-resort fallback for equity: some filers don't tag an aggregate
+    # "StockholdersEquity" figure either - they only tag its individual
+    # components (common stock, retained earnings, etc.). When BOTH tag
+    # variants are missing, derive equity from the same identity in the
+    # other direction: Equity = Assets - Liabilities. This is exact by
+    # definition, not an approximation, so it's safe to use whenever the
+    # direct tags are absent. Uses our just-derived `liabilities` (not the
+    # raw, possibly-missing wide["Liabilities"]) so this still works even
+    # when BOTH the equity tags AND the aggregate liabilities tag are absent.
+    equity = equity.fillna(wide["Assets"] - liabilities)
+
     # Gross profit: use the reported tag if present, else derive it
     # (Revenues - Cost of Revenue) since many issuers don't tag it directly.
     gross_profit = wide["GrossProfit"]
@@ -139,7 +150,7 @@ def compute_ratios(wide: pd.DataFrame) -> pd.DataFrame:
     ratios["operating_margin"] = wide["OperatingIncomeLoss"] / revenues
 
     # --- Leverage ---
-    ratios["debt_to_equity"] = wide["Liabilities"] / equity
+    ratios["debt_to_equity"] = liabilities / equity
 
     # --- Efficiency ---
     ratios["asset_turnover"] = revenues / wide["Assets"]
@@ -149,30 +160,6 @@ def compute_ratios(wide: pd.DataFrame) -> pd.DataFrame:
     ratios["net_income_yoy_growth"] = wide["NetIncomeLoss"].pct_change()
 
     return ratios.round(4)
-
-# def compute_ratios(wide: pd.DataFrame) -> pd.DataFrame:
-#     """Computes ratio families from the wide annual financials table."""
-#     ratios = pd.DataFrame(index=wide.index)
-
-#     # --- Liquidity ---
-#     ratios["current_ratio"] = wide["AssetsCurrent"] / wide["LiabilitiesCurrent"]
-
-#     # --- Profitability ---
-#     ratios["net_margin"] = wide["NetIncomeLoss"] / wide["Revenues"]
-#     ratios["gross_margin"] = wide["GrossProfit"] / wide["Revenues"]
-#     ratios["operating_margin"] = wide["OperatingIncomeLoss"] / wide["Revenues"]
-
-#     # --- Leverage ---
-#     ratios["debt_to_equity"] = wide["Liabilities"] / wide["StockholdersEquity"]
-
-#     # --- Efficiency ---
-#     ratios["asset_turnover"] = wide["Revenues"] / wide["Assets"]
-
-#     # --- Year-over-year change (useful signal for the agent layer) ---
-#     ratios["revenue_yoy_growth"] = wide["Revenues"].pct_change()
-#     ratios["net_income_yoy_growth"] = wide["NetIncomeLoss"].pct_change()
-
-#     return ratios.round(4)
 
 
 def main():

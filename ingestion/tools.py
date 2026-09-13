@@ -83,6 +83,138 @@ def get_price_signals(ticker: str) -> dict:
     })
 
 
+def predict_direction(ticker: str) -> dict:
+    """
+    Uses the trained Random Forest / XGBoost / Logistic Regression models
+    (from train_classifiers.py) to predict tomorrow's price direction from
+    today's features.
+
+    IMPORTANT - these models are only slightly better than a coin flip
+    (test accuracy typically 45-55%, ROC-AUC just above 0.5). This is a
+    known, honest limitation of next-day direction prediction in efficient
+    markets, not a bug. The agent should present this as a weak signal
+    alongside other evidence, never as a confident forecast.
+
+    Imports feature_engineering / pickle lazily since they're only needed
+    when this specific tool is actually called.
+    """
+    import pickle
+    from feature_engineering import FEATURE_COLUMNS, get_latest_feature_row
+
+    ticker = ticker.upper()
+    model_path = Path(__file__).parent / "models" / f"{ticker}_classifiers.pkl"
+    if not model_path.exists():
+        return {"error": f"No trained classifier found for {ticker}. Run train_classifiers.py first."}
+
+    try:
+        latest = get_latest_feature_row(ticker)
+    except (FileNotFoundError, ValueError) as e:
+        return {"error": str(e)}
+
+    with open(model_path, "rb") as f:
+        models = pickle.load(f)
+
+    X = latest[FEATURE_COLUMNS].astype(float).to_frame().T
+
+    predictions = {}
+
+    rf = models["random_forest"]["model"]
+    predictions["random_forest"] = {
+        "predicted_direction": "up" if rf.predict(X)[0] == 1 else "down",
+        "probability_up": round(float(rf.predict_proba(X)[0][1]), 4),
+    }
+
+    xgb = models["xgboost"]["model"]
+    predictions["xgboost"] = {
+        "predicted_direction": "up" if xgb.predict(X)[0] == 1 else "down",
+        "probability_up": round(float(xgb.predict_proba(X)[0][1]), 4),
+    }
+
+    logreg_bundle = models["logistic_regression"]
+    X_scaled = logreg_bundle["scaler"].transform(X)
+    logreg = logreg_bundle["model"]
+    predictions["logistic_regression"] = {
+        "predicted_direction": "up" if logreg.predict(X_scaled)[0] == 1 else "down",
+        "probability_up": round(float(logreg.predict_proba(X_scaled)[0][1]), 4),
+    }
+
+    return _sanitize_for_json({
+        "ticker": ticker,
+        "as_of_date": str(latest["date"].date()),
+        "predictions": predictions,
+        "caveat": ("Next-day direction prediction is close to a coin flip in efficient "
+                   "markets. These models typically score 45-55% test accuracy - treat "
+                   "this as a weak signal, not a confident forecast."),
+    })
+
+
+def get_lasso_findings(ticker: str) -> dict:
+    """
+    Returns which features Lasso regression kept (non-zero coefficient) vs
+    dropped (shrunk to exactly zero) when predicting next-day return
+    magnitude for a ticker - i.e. genuine feature selection, not a
+    prediction. See lasso_selection.py for the training/evaluation code.
+    """
+    ticker = ticker.upper()
+    path = DATA_DIR / f"{ticker}_lasso_coefficients.parquet"
+    if not path.exists():
+        return {"error": f"No Lasso results found for {ticker}. Run lasso_selection.py first."}
+
+    df = pd.read_parquet(path)
+    kept = df[df["coefficient"] != 0].sort_values("abs_coefficient", ascending=False)
+    dropped = df[df["coefficient"] == 0]["feature"].tolist()
+
+    return _sanitize_for_json({
+        "ticker": ticker,
+        "features_kept": kept.to_dict(orient="records"),
+        "features_dropped": dropped,
+        "note": ("An empty 'features_kept' list means Lasso found no reliable linear "
+                 "signal in ANY feature for predicting next-day return magnitude - a "
+                 "legitimate, honest result for this kind of prediction task, not an error."),
+    })
+
+
+def get_cluster(ticker: str) -> dict:
+    """
+    Returns which financial-profile cluster a ticker belongs to (from
+    cluster_companies.py's K-Means output), which other tickers share that
+    cluster, and that cluster's average ratio profile.
+
+    IMPORTANT - honest limitation: with only a handful of tickers in this
+    project, clustering is only weakly informative (see cluster_companies.py
+    docstring). The agent should mention this caveat when discussing results.
+    """
+    ticker = ticker.upper()
+    path = DATA_DIR / "company_clusters.parquet"
+    if not path.exists():
+        return {"error": "No cluster data found. Run cluster_companies.py first."}
+
+    df = pd.read_parquet(path)
+    if ticker not in df["ticker"].values:
+        return {"error": f"{ticker} was not included in the last cluster_companies.py run. "
+                          f"Available tickers: {df['ticker'].tolist()}"}
+
+    from cluster_companies import CLUSTER_FEATURES
+
+    row = df[df["ticker"] == ticker].iloc[0]
+    cluster_id = int(row["cluster"])
+
+    same_cluster = df[df["cluster"] == cluster_id]
+    cluster_profile = same_cluster[CLUSTER_FEATURES].mean().round(4).to_dict()
+
+    return _sanitize_for_json({
+        "ticker": ticker,
+        "cluster_id": cluster_id,
+        "cluster_members": same_cluster["ticker"].tolist(),
+        "cluster_average_profile": cluster_profile,
+        "total_tickers_considered": len(df),
+        "caveat": ("With few tickers in this project, clustering is only weakly informative - "
+                   "results become more meaningful with a broader set of companies (10+ "
+                   "recommended). Treat cluster membership as a rough grouping, not a precise "
+                   "classification.") if len(df) < 4 else None,
+    })
+
+
 def search_filings(ticker: str, query: str, top_k: int = 5) -> dict:
     """
     Searches the ticker's SEC filing text for passages relevant to `query`.
@@ -141,6 +273,46 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "predict_direction",
+        "description": "Predict whether a stock's price will go up or down tomorrow, using trained "
+                        "Random Forest, XGBoost, and Logistic Regression models on technical and "
+                        "fundamental features. NOTE: this is a weak signal, close to a coin flip - "
+                        "typical test accuracy is only 45-55%. Present with appropriate caution.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Stock ticker symbol, e.g. NKE"},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "get_lasso_findings",
+        "description": "Get which financial/technical features Lasso regression found to have real "
+                        "linear predictive signal (kept) vs none (dropped to zero) for next-day return "
+                        "magnitude. Useful for explaining which factors matter, not for forecasting.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Stock ticker symbol, e.g. NKE"},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "get_cluster",
+        "description": "Get which peer group (financial-profile cluster) a company belongs to, based "
+                        "on K-Means clustering of its ratios (margins, leverage, efficiency, growth) - "
+                        "not sector labels. Returns cluster members and the cluster's average profile.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Stock ticker symbol, e.g. NKE"},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
         "name": "search_filings",
         "description": "Search a company's actual SEC 10-K/10-Q filing text for passages relevant to a "
                         "question (e.g. risk factors, strategy, litigation). Returns grounded quotes with sources.",
@@ -160,5 +332,8 @@ TOOL_SCHEMAS = [
 TOOL_FUNCTIONS = {
     "get_ratios": get_ratios,
     "get_price_signals": get_price_signals,
+    "predict_direction": predict_direction,
+    "get_lasso_findings": get_lasso_findings,
+    "get_cluster": get_cluster,
     "search_filings": search_filings,
 }

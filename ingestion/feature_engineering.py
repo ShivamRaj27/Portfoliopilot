@@ -133,6 +133,47 @@ def build_feature_matrix(ticker: str, drop_last_row: bool = True) -> pd.DataFram
     return df.reset_index(drop=True)
 
 
+def get_latest_feature_row(ticker: str) -> pd.Series:
+    """
+    Returns a single row of FEATURE_COLUMNS values "as of today" - i.e. the
+    most recent trading day's features, with NO target attached (we don't
+    know tomorrow's direction yet - that's the whole point of predicting it).
+
+    This is deliberately separate from build_feature_matrix(), which always
+    drops rows missing a target (needed for training/testing, wrong for live
+    prediction). Used by tools.py's predict_direction() to feed a saved model
+    a real, current feature vector.
+    """
+    ticker = ticker.upper()
+    signals = _load_price_signals(ticker)
+
+    df = pd.DataFrame({"date": signals["date"], "close": signals["close"]})
+    df["return_lag_1"] = signals["daily_return"]
+    df["return_lag_2"] = signals["daily_return"].shift(1)
+    df["return_lag_3"] = signals["daily_return"].shift(2)
+    df["return_lag_5"] = signals["daily_return"].shift(4)
+    df["volatility_20d"] = signals["volatility_20d"]
+    df["rsi_14"] = signals["rsi_14"]
+    df["return_zscore"] = signals["return_zscore"]
+    df["dist_from_ma50"] = signals["close"] / signals["ma_50"] - 1
+    df["dist_from_ma200"] = signals["close"] / signals["ma_200"] - 1
+    vol_ma20 = signals["volume"].rolling(window=20, min_periods=20).mean()
+    df["volume_ratio"] = signals["volume"] / vol_ma20
+
+    ratios_daily = _load_ratios_daily(ticker, df["date"])
+    df = pd.concat([df, ratios_daily], axis=1)
+
+    # Only require the FEATURE_COLUMNS to be present - unlike
+    # build_feature_matrix, we do NOT require a target, since this row IS
+    # "today" and has no known tomorrow.
+    df = df.dropna(subset=FEATURE_COLUMNS)
+    if df.empty:
+        raise ValueError(f"No row with complete features found for {ticker}.")
+
+    latest = df.iloc[-1]
+    return latest
+
+
 def chronological_split(df: pd.DataFrame, test_size: float = 0.2):
     """
     Splits BY DATE, not randomly - critical for time series. A random split

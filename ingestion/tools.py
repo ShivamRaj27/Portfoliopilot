@@ -74,6 +74,13 @@ def get_price_signals(ticker: str) -> dict:
     zscore_anomalies = df[df["is_anomalous"]].tail(5)
     ml_anomalies = df[df["is_ml_anomalous"]].tail(5) if "is_ml_anomalous" in df.columns else df.iloc[0:0]
 
+    # Full-history counts/overlap (not just the last-5 detail rows above) so
+    # the two methods can be meaningfully compared - e.g. "how often do they
+    # agree" only makes sense computed over the whole dataset, not a 5-row window.
+    total_zscore = int(df["is_anomalous"].sum())
+    total_ml = int(df["is_ml_anomalous"].sum()) if "is_ml_anomalous" in df.columns else 0
+    total_overlap = int((df["is_anomalous"] & df.get("is_ml_anomalous", False)).sum())
+
     return _sanitize_for_json({
         "ticker": ticker,
         "as_of_date": str(latest["date"].date()),
@@ -81,6 +88,10 @@ def get_price_signals(ticker: str) -> dict:
         "trend_signal": latest["trend_signal"],
         "volatility_20d": round(float(latest["volatility_20d"]), 4) if pd.notna(latest["volatility_20d"]) else None,
         "rsi_14": round(float(latest["rsi_14"]), 1) if pd.notna(latest["rsi_14"]) else None,
+        "total_days_analyzed": int(len(df)),
+        "total_zscore_anomalies": total_zscore,
+        "total_ml_anomalies": total_ml,
+        "total_overlap_anomalies": total_overlap,
         "recent_anomalies_zscore_method": [
             {
                 "date": str(row["date"].date()),

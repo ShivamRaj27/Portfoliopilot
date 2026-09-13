@@ -67,6 +67,107 @@ def render_tool_call_log(tool_call_log: list):
                 st.json(output)
 
 
+def _classifier_plain_summary(result: dict) -> str:
+    """Builds a deterministic, plain-language explanation of predict_direction()'s
+    output - no LLM call needed, so this works even without an API key."""
+    recommended = result.get("recommended")
+    if not recommended:
+        return "No summary available - a best model couldn't be determined."
+
+    ticker = result["ticker"]
+    direction = recommended["predicted_direction"]
+    prob = recommended["probability_up"]
+    model = recommended["model"]
+    accuracy = recommended["test_accuracy"]
+
+    diff = abs(prob - 0.5)
+    if diff < 0.05:
+        lean = "essentially a toss-up, with only the slightest lean"
+    elif diff < 0.15:
+        lean = "a mild lean"
+    elif diff < 0.25:
+        lean = "a moderate lean"
+    else:
+        lean = "a fairly strong lean"
+
+    return (
+        f"Our best-performing model ({model}) shows {lean} toward **{ticker} going "
+        f"{direction.upper()}** tomorrow ({prob:.0%} probability of an up move). But this "
+        f"model is only right about {accuracy:.0%} of the time historically — barely better "
+        f"than a coin flip — so this is a minor data point to keep in mind, not something to "
+        f"act on by itself."
+    )
+
+
+def _lasso_plain_summary(result: dict) -> str:
+    """Plain-language explanation of get_lasso_findings()'s output."""
+    ticker = result["ticker"]
+    kept = result.get("features_kept", [])
+
+    if not kept:
+        return (
+            f"None of the 14 signals we track (recent price trends, volatility, RSI, profit "
+            f"margins, debt levels, and more) reliably explain how BIG {ticker}'s next price "
+            f"move will be. In plain terms: there's no dependable formula among these numbers "
+            f"for predicting tomorrow's move size — a common, honest finding for actively-traded, "
+            f"closely-watched stocks."
+        )
+
+    top_feature = kept[0]["feature"]
+    return (
+        f"{len(kept)} of the signals we track showed a strong enough relationship with next-day "
+        f"price movement size to survive the model's filtering, led by **{top_feature}**. This "
+        f"suggests it may carry some real predictive value — though treat this as a mild hint "
+        f"rather than a rule, since overall prediction accuracy for move size remains low."
+    )
+
+
+def _cluster_plain_summary(result: dict) -> str:
+    """Plain-language explanation of get_cluster()'s output, translating the raw
+    ratio numbers into descriptive labels a non-technical reader can follow."""
+    ticker = result["ticker"]
+    profile = result.get("cluster_average_profile", {})
+    members = [m for m in result.get("cluster_members", []) if m != ticker]
+
+    net_margin = profile.get("net_margin")
+    debt_to_equity = profile.get("debt_to_equity")
+    growth = profile.get("revenue_yoy_growth")
+
+    margin_word = ("high-margin" if net_margin is not None and net_margin > 0.25
+                   else "moderate-margin" if net_margin is not None and net_margin > 0.12
+                   else "lower-margin")
+    leverage_word = ("low-debt" if debt_to_equity is not None and debt_to_equity < 1.5
+                     else "moderate-debt" if debt_to_equity is not None and debt_to_equity < 3
+                     else "high-debt")
+    growth_word = ("fast-growing" if growth is not None and growth > 0.10
+                   else "steadily-growing" if growth is not None and growth > 0
+                   else "slow or declining")
+
+    peer_text = f"grouped with {', '.join(members)}" if members else "not grouped with any other company in this dataset"
+    return (
+        f"{ticker} is {peer_text} because they share a similar overall financial profile: "
+        f"**{margin_word}, {leverage_word}, and {growth_word}** revenue. This grouping is based "
+        f"purely on the actual numbers (profitability, leverage, efficiency, growth) — not "
+        f"official industry or sector labels."
+    )
+
+
+def _anomaly_plain_summary(result: dict) -> str:
+    """Plain-language explanation of get_price_signals()'s two anomaly methods."""
+    total_days = result.get("total_days_analyzed", 0)
+    total_z = result.get("total_zscore_anomalies", 0)
+    total_ml = result.get("total_ml_anomalies", 0)
+    overlap = result.get("total_overlap_anomalies", 0)
+
+    return (
+        f"Over the {total_days} trading days analyzed, the simple rule-based method flagged "
+        f"{total_z} unusual days, and the AI-based method flagged {total_ml}. **{overlap} day(s) "
+        f"were flagged by both methods** — those are the strongest candidates for genuinely "
+        f"unusual market events, since two independent approaches agree. Days flagged by only "
+        f"one method are weaker signals and may just reflect that method's own blind spots."
+    )
+
+
 def render_classifier_results(result: dict):
     """Renders predict_direction() output as a single recommended call, backed by
     whichever trained model actually scored best on accuracy + precision - not
@@ -86,14 +187,11 @@ def render_classifier_results(result: dict):
             f"{recommended['probability_up']:.1%} probability up",
             delta_color="normal" if direction == "up" else "inverse",
         )
-        st.caption(
-            f"Chosen because it had the best test-set accuracy ({recommended['test_accuracy']:.1%}) "
-            f"and precision ({recommended['test_precision']:.1%}) among the three trained models."
-        )
+        st.success(f"📝 **What this means:** {_classifier_plain_summary(result)}")
     else:
         st.warning("No saved test-set results found to pick a best model - run train_classifiers.py first.")
 
-    with st.expander("See all three models' predictions"):
+    with st.expander("See all three models' predictions (technical detail)"):
         labels = {
             "random_forest": "Random Forest",
             "xgboost": "XGBoost",
@@ -111,86 +209,96 @@ def render_classifier_results(result: dict):
 
 
 def render_lasso_results(result: dict):
-    """Renders get_lasso_findings() output: Lasso's official selection first,
-    then a clearly-separated raw-correlation diagnostic view so there's always
-    something concrete visible even when Lasso's honest answer is 'none kept'."""
+    """Renders get_lasso_findings() output: a plain-language summary first, then
+    Lasso's official selection, then a clearly-separated raw-correlation
+    diagnostic view so there's always something concrete visible even when
+    Lasso's honest answer is 'none kept'."""
     if "error" in result:
         st.error(result["error"])
         return
+
+    st.success(f"📝 **What this means:** {_lasso_plain_summary(result)}")
 
     kept = result["features_kept"]
     dropped = result["features_dropped"]
 
-    st.write("##### Lasso's official result")
-    if kept:
-        st.write("**Features Lasso kept (non-zero coefficient):**")
-        st.dataframe(pd.DataFrame(kept), use_container_width=True, hide_index=True)
-    else:
-        st.write("**Features Lasso kept:** none")
-
-    with st.expander(f"Features Lasso dropped to exactly zero ({len(dropped)})"):
+    with st.expander("See Lasso's technical result"):
+        st.write("##### Lasso's official result")
+        if kept:
+            st.write("**Features Lasso kept (non-zero coefficient):**")
+            st.dataframe(pd.DataFrame(kept), use_container_width=True, hide_index=True)
+        else:
+            st.write("**Features Lasso kept:** none")
+        st.write(f"**Features Lasso dropped to exactly zero ({len(dropped)}):**")
         st.write(", ".join(dropped) if dropped else "—")
+        st.caption(result["note"])
 
-    st.caption(result["note"])
-
-    ranking = result.get("raw_correlation_ranking")
-    if ranking:
-        st.divider()
-        st.write("##### Diagnostic view (not a Lasso result)")
-        ranking_df = pd.DataFrame(ranking)
-        st.bar_chart(
-            ranking_df.set_index("feature")["correlation_with_next_day_return"],
-            use_container_width=True,
-        )
-        st.dataframe(
-            ranking_df[["feature", "correlation_with_next_day_return"]],
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption(f"⚠️ {result['raw_correlation_disclaimer']}")
+        ranking = result.get("raw_correlation_ranking")
+        if ranking:
+            st.divider()
+            st.write("##### Diagnostic view (not a Lasso result)")
+            ranking_df = pd.DataFrame(ranking)
+            st.bar_chart(
+                ranking_df.set_index("feature")["correlation_with_next_day_return"],
+                use_container_width=True,
+            )
+            st.dataframe(
+                ranking_df[["feature", "correlation_with_next_day_return"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(f"⚠️ {result['raw_correlation_disclaimer']}")
 
 
 def render_cluster_results(result: dict):
-    """Renders get_cluster() output as a membership + profile summary."""
+    """Renders get_cluster() output: plain-language summary first, then the
+    technical membership + profile table."""
     if "error" in result:
         st.error(result["error"])
         return
 
-    st.metric("Cluster", f"#{result['cluster_id']}")
-    st.write(f"**Peers in this cluster:** {', '.join(result['cluster_members'])}")
-    st.write("**Cluster average financial profile:**")
-    profile_df = pd.DataFrame([result["cluster_average_profile"]])
-    st.dataframe(profile_df, use_container_width=True, hide_index=True)
-    if result.get("caveat"):
-        st.info(f"⚠️ {result['caveat']}")
+    st.success(f"📝 **What this means:** {_cluster_plain_summary(result)}")
+
+    with st.expander("See technical detail"):
+        st.metric("Cluster", f"#{result['cluster_id']}")
+        st.write(f"**Peers in this cluster:** {', '.join(result['cluster_members'])}")
+        st.write("**Cluster average financial profile:**")
+        profile_df = pd.DataFrame([result["cluster_average_profile"]])
+        st.dataframe(profile_df, use_container_width=True, hide_index=True)
+        if result.get("caveat"):
+            st.info(f"⚠️ {result['caveat']}")
 
 
 def render_anomaly_results(result: dict):
-    """Renders get_price_signals() output, highlighting BOTH anomaly-detection methods side by side."""
+    """Renders get_price_signals() output: plain-language summary first, then
+    both anomaly-detection methods' recent flagged days side by side."""
     if "error" in result:
         st.error(result["error"])
         return
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write("**Rule-based (z-score) anomalies:**")
-        zscore_rows = result.get("recent_anomalies_zscore_method", [])
-        if zscore_rows:
-            st.dataframe(pd.DataFrame(zscore_rows), use_container_width=True, hide_index=True)
-        else:
-            st.caption("None flagged in the recent window.")
-    with c2:
-        st.write("**Isolation Forest (ML) anomalies:**")
-        ml_rows = result.get("recent_anomalies_ml_method", [])
-        if ml_rows:
-            st.dataframe(pd.DataFrame(ml_rows), use_container_width=True, hide_index=True)
-        else:
-            st.caption("None flagged in the recent window.")
-    st.caption(
-        "Two independent anomaly-detection methods, run side by side: a simple statistical "
-        "rule (|z-score| threshold) and a trained Isolation Forest model on daily return, "
-        "volatility, and RSI. Where they agree is stronger evidence; where they diverge is worth a closer look."
-    )
+    st.success(f"📝 **What this means:** {_anomaly_plain_summary(result)}")
+
+    with st.expander("See recent flagged days (technical detail)"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**Rule-based (z-score) anomalies:**")
+            zscore_rows = result.get("recent_anomalies_zscore_method", [])
+            if zscore_rows:
+                st.dataframe(pd.DataFrame(zscore_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("None flagged in the recent window.")
+        with c2:
+            st.write("**Isolation Forest (ML) anomalies:**")
+            ml_rows = result.get("recent_anomalies_ml_method", [])
+            if ml_rows:
+                st.dataframe(pd.DataFrame(ml_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("None flagged in the recent window.")
+        st.caption(
+            "Two independent anomaly-detection methods, run side by side: a simple statistical "
+            "rule (|z-score| threshold) and a trained Isolation Forest model on daily return, "
+            "volatility, and RSI."
+        )
 
 
 def render_ml_lab(ticker: str):
@@ -198,14 +306,22 @@ def render_ml_lab(ticker: str):
     Dedicated panel that calls the trained ML tools DIRECTLY for the
     selected ticker - independent of the chat agent above. Guarantees real,
     trained-model output is visible on demand, regardless of what question
-    (if any) the agent was asked.
+    (if any) the agent was asked. Each tab leads with a plain-language
+    explanation of what the model found, aimed at someone without an ML
+    background, followed by the technical detail in a collapsed expander.
     """
     from tools import get_cluster, get_lasso_findings, get_price_signals, predict_direction
 
     st.subheader(f"🔬 ML Model Lab — {ticker}")
     st.caption(
         "These run the actual trained models directly (not through the LLM agent) so you can "
-        "see real, reproducible ML output on demand."
+        "see real, reproducible ML output on demand. Each tab answers a different question:"
+    )
+    st.markdown(
+        "- **Direction Classifiers** → Will the stock likely go up or down tomorrow?\n"
+        "- **Lasso Feature Selection** → Do any of our data signals reliably explain *how big* tomorrow's move will be?\n"
+        "- **Peer Clustering** → Which other companies does this one financially resemble?\n"
+        "- **Anomaly Detection** → Were there any unusual trading days recently?"
     )
 
     tab1, tab2, tab3, tab4 = st.tabs([

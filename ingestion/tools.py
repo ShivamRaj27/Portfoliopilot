@@ -157,10 +157,39 @@ def predict_direction(ticker: str) -> dict:
         "probability_up": round(float(logreg.predict_proba(X_scaled)[0][1]), 4),
     }
 
+    # Pick a single "best" model using the REAL saved test-set metrics from
+    # train_classifiers.py (accuracy + precision), rather than showing all
+    # three predictions and leaving it to the user to reconcile disagreement.
+    recommended = None
+    results_path = DATA_DIR / f"{ticker}_classifier_results.parquet"
+    model_key_by_name = {
+        "Random Forest": "random_forest",
+        "XGBoost": "xgboost",
+        "Logistic Regression": "logistic_regression",
+    }
+    if results_path.exists():
+        results_df = pd.read_parquet(results_path)
+        results_df["score"] = (results_df["accuracy"] + results_df["precision"]) / 2
+        best_row = results_df.sort_values("score", ascending=False).iloc[0]
+        best_key = model_key_by_name.get(best_row["model"])
+        if best_key and best_key in predictions:
+            recommended = {
+                "model": best_row["model"],
+                "predicted_direction": predictions[best_key]["predicted_direction"],
+                "probability_up": predictions[best_key]["probability_up"],
+                "test_accuracy": round(float(best_row["accuracy"]), 4),
+                "test_precision": round(float(best_row["precision"]), 4),
+                "why_this_model": (f"{best_row['model']} scored the best combined accuracy "
+                                    f"({best_row['accuracy']:.1%}) and precision "
+                                    f"({best_row['precision']:.1%}) on the test set, among the "
+                                    f"three trained models."),
+            }
+
     return _sanitize_for_json({
         "ticker": ticker,
         "as_of_date": str(latest["date"].date()),
-        "predictions": predictions,
+        "recommended": recommended,
+        "all_model_predictions": predictions,
         "caveat": ("Next-day direction prediction is close to a coin flip in efficient "
                    "markets. These models typically score 45-55% test accuracy - treat "
                    "this as a weak signal, not a confident forecast."),
@@ -293,9 +322,10 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "predict_direction",
-        "description": "Predict whether a stock's price will go up or down tomorrow, using trained "
-                        "Random Forest, XGBoost, and Logistic Regression models on technical and "
-                        "fundamental features. NOTE: this is a weak signal, close to a coin flip - "
+        "description": "Predict whether a stock's price will go up or down tomorrow. Returns a single "
+                        "recommended call from whichever of Random Forest/XGBoost/Logistic Regression "
+                        "scored best on test-set accuracy and precision, plus all three models' individual "
+                        "predictions for reference. NOTE: this is a weak signal, close to a coin flip - "
                         "typical test accuracy is only 45-55%. Present with appropriate caution.",
         "input_schema": {
             "type": "object",

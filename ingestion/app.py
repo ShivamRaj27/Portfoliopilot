@@ -68,28 +68,45 @@ def render_tool_call_log(tool_call_log: list):
 
 
 def render_classifier_results(result: dict):
-    """Renders predict_direction() output as a row of model cards, not raw JSON."""
+    """Renders predict_direction() output as a single recommended call, backed by
+    whichever trained model actually scored best on accuracy + precision - not
+    three possibly-disagreeing model cards."""
     if "error" in result:
         st.error(result["error"])
         return
 
     st.caption(f"As of {result['as_of_date']} — predicting tomorrow's direction")
-    cols = st.columns(3)
-    labels = {
-        "random_forest": "Random Forest",
-        "xgboost": "XGBoost",
-        "logistic_regression": "Logistic Regression (baseline)",
-    }
-    for col, (key, label) in zip(cols, labels.items()):
-        pred = result["predictions"][key]
-        direction = pred["predicted_direction"]
-        prob = pred["probability_up"]
-        col.metric(
-            label,
+
+    recommended = result.get("recommended")
+    if recommended:
+        direction = recommended["predicted_direction"]
+        st.metric(
+            f"Recommended call — {recommended['model']}",
             direction.upper(),
-            f"{prob:.1%} probability up",
+            f"{recommended['probability_up']:.1%} probability up",
             delta_color="normal" if direction == "up" else "inverse",
         )
+        st.caption(
+            f"Chosen because it had the best test-set accuracy ({recommended['test_accuracy']:.1%}) "
+            f"and precision ({recommended['test_precision']:.1%}) among the three trained models."
+        )
+    else:
+        st.warning("No saved test-set results found to pick a best model - run train_classifiers.py first.")
+
+    with st.expander("See all three models' predictions"):
+        labels = {
+            "random_forest": "Random Forest",
+            "xgboost": "XGBoost",
+            "logistic_regression": "Logistic Regression (baseline)",
+        }
+        cols = st.columns(3)
+        for col, (key, label) in zip(cols, labels.items()):
+            pred = result["all_model_predictions"][key]
+            direction = pred["predicted_direction"]
+            prob = pred["probability_up"]
+            col.metric(label, direction.upper(), f"{prob:.1%} probability up",
+                       delta_color="normal" if direction == "up" else "inverse")
+
     st.info(f"⚠️ {result['caveat']}")
 
 

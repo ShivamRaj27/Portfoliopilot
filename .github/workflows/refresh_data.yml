@@ -42,6 +42,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # needed to commit refreshed data/models back to the repo
+    defaults:
+      run:
+        # All the scripts, data/, and models/ actually live in this subfolder,
+        # not the repo root - every `run:` step below executes from here.
+        working-directory: ingestion
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -55,7 +60,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('ingestion/requirements.txt') }}
 
       - name: Install dependencies
         run: |

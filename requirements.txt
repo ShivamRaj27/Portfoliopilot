@@ -1,29 +1,26 @@
-beautifulsoup4==4.15.0
-certifi==2026.7.22
-cffi==2.1.1
-charset-normalizer==3.5.1
-curl_cffi==0.16.1
-idna==3.19
-lxml==6.1.2
-multitasking==0.0.13
-numpy==2.5.2
-pandas==3.0.5
-peewee==4.3.0
-platformdirs==4.11.3
-protobuf==7.36.0
+# PortfolioPilot - data ingestion / quant / ML pipeline dependencies
+# Trimmed from a full `pip freeze` to only what fetch_*.py, compute_ratios.py,
+# price_signals.py, feature_engineering.py, train_classifiers.py,
+# lasso_selection.py, cluster_companies.py, build_vector_store.py, retrieve.py,
+# agent.py, and agent_gemini.py actually import. Versions pinned to match
+# what's confirmed working on the local dev machine.
+
+# --- Data ingestion ---
+pandas==3.0.3
+numpy==2.4.6
 pyarrow==25.0.1
-pycparser==3.0
-python-dateutil==2.9.0.post0
-pytz==2026.3.post1
 requests==2.34.2
-six==1.17.0
-soupsieve==2.9.2
-typing_extensions==4.16.0
-tzdata==2026.3
-urllib3==2.7.0
-websockets==16.0
+beautifulsoup4==4.15.0
+lxml==6.1.2
 yfinance==1.6.0
-streamlit
-google-genai
-pandas
-pyarrow
+
+# --- Quant & ML (Layer 2) ---
+scikit-learn==1.9.1
+xgboost==3.4.1
+
+# --- Retrieval / NLP (Layer 3) ---
+sentence-transformers==6.0.1
+
+# --- Agent orchestration (Layer 4) ---
+anthropic==1.5.0
+google-genai==2.23.0

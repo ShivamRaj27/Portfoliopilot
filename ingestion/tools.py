@@ -54,7 +54,16 @@ def get_ratios(ticker: str, num_years: int = 3) -> dict:
 
 
 def get_price_signals(ticker: str) -> dict:
-    """Returns the latest price trend/volatility/RSI signals and recent anomalies for a ticker."""
+    """
+    Returns the latest price trend/volatility/RSI signals for a ticker, plus
+    recent anomalous days flagged by TWO independent methods:
+      - zscore method: rule-based, |return z-score| > threshold
+      - ml method:      Isolation Forest, trained on [daily_return,
+                         volatility_20d, rsi_14] (see price_signals.py)
+    Both are returned side by side so it's clear where they agree/disagree -
+    useful for showing the ML anomaly detector isn't just duplicating the
+    simple rule-based one.
+    """
     ticker = ticker.upper()
     path = DATA_DIR / f"{ticker}_price_signals.parquet"
     if not path.exists():
@@ -62,7 +71,8 @@ def get_price_signals(ticker: str) -> dict:
 
     df = pd.read_parquet(path)
     latest = df.iloc[-1]
-    anomalies = df[df["is_anomalous"]].tail(5)
+    zscore_anomalies = df[df["is_anomalous"]].tail(5)
+    ml_anomalies = df[df["is_ml_anomalous"]].tail(5) if "is_ml_anomalous" in df.columns else df.iloc[0:0]
 
     return _sanitize_for_json({
         "ticker": ticker,
@@ -71,14 +81,23 @@ def get_price_signals(ticker: str) -> dict:
         "trend_signal": latest["trend_signal"],
         "volatility_20d": round(float(latest["volatility_20d"]), 4) if pd.notna(latest["volatility_20d"]) else None,
         "rsi_14": round(float(latest["rsi_14"]), 1) if pd.notna(latest["rsi_14"]) else None,
-        "recent_anomalies": [
+        "recent_anomalies_zscore_method": [
             {
                 "date": str(row["date"].date()),
                 "close": round(float(row["close"]), 2),
                 "daily_return": round(float(row["daily_return"]), 4),
                 "return_zscore": round(float(row["return_zscore"]), 2),
             }
-            for _, row in anomalies.iterrows()
+            for _, row in zscore_anomalies.iterrows()
+        ],
+        "recent_anomalies_ml_method": [
+            {
+                "date": str(row["date"].date()),
+                "close": round(float(row["close"]), 2),
+                "daily_return": round(float(row["daily_return"]), 4),
+                "ml_anomaly_score": round(float(row["ml_anomaly_score"]), 4) if pd.notna(row["ml_anomaly_score"]) else None,
+            }
+            for _, row in ml_anomalies.iterrows()
         ],
     })
 
